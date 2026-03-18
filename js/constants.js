@@ -7,9 +7,9 @@
 // ════════════════════════════════════════════════════
 const INIT_CASH = 1000000;
 const OPEN_H = 9, CLOSE_H = 15, AFTER_H = 16;
-const OPEN_MIN  = OPEN_H  * 60;   // 540  (09:00)
-const CLOSE_MIN = CLOSE_H * 60;   // 900  (15:00)
-const AFTER_MIN = AFTER_H * 60;   // 960  (16:00)
+const OPEN_MIN  = OPEN_H  * 60;
+const CLOSE_MIN = CLOSE_H * 60;
+const AFTER_MIN = AFTER_H * 60;
 const DAY_TICKS = AFTER_MIN - OPEN_MIN;
 const MINS_PER_DAY = 420;
 const REST_SECS = 60;
@@ -22,7 +22,7 @@ const DAYS_KR = ['일','월','화','수','목','금','토'];
 const KOSPI_BASE = 2500;
 
 // ════════════════════════════════════════════════════
-// STOCK POOL
+// STOCK POOL (기존 유지)
 // ════════════════════════════════════════════════════
 const ALL_STOCKS_DEF = [
   {
@@ -161,7 +161,6 @@ const ALL_STOCKS_DEF = [
   },
 ];
 
-// 시장 이벤트
 const MARKET_EVENTS = [
   {text:'미중 무역분쟁 재점화 — 수출주 일제 하락', mult:-0.022, type:'bear'},
   {text:'GDP 성장률 예상 상회 — 경기 회복 기대감', mult:0.015, type:'bull'},
@@ -182,73 +181,74 @@ const GENERIC_NEWS = [
 ];
 
 // ════════════════════════════════════════════════════
-// GLOBAL STATE
+// GLOBAL STATE — 버블/사이클 필드 추가
 // ════════════════════════════════════════════════════
 let G = {
+  // 기본
   date: new Date(2025, 0, 6),
-  hour: 9,
-  minute: 0,
-  totalMin: OPEN_MIN,
+  hour: 9, minute: 0, totalMin: OPEN_MIN,
   turn: 0,
-  realtimeTimer: null,
-  isRunning: false,
-  isResting: false,
-  restTimer: null,
+  realtimeTimer: null, isRunning: false, isResting: false, restTimer: null,
   activeId: 'NARO',
-  cash: INIT_CASH,
-  totalFee: 0,
-  totalDividend: 0,
-  dividendPaidThisYear: false,
+  cash: INIT_CASH, totalFee: 0, totalDividend: 0, dividendPaidThisYear: false,
   logs: [],
+
+  // 레짐
   regime: 'neutral',
   activeMarketEvent: null,
-  kospi: KOSPI_BASE,
-  kospiOpen: KOSPI_BASE,
+
+  // KOSPI
+  kospi: KOSPI_BASE, kospiOpen: KOSPI_BASE, kospiLogReturn: 0,
+  kospiCandles: [], kospiIntraday: null, kospiFlowHistory: [],
+  marketFlowInst: 0, marketFlowFore: 0, marketFlowIndiv: 0,
+
+  // 종목
   listedIds: ['NARO','BIOX','HNCR','EVGO','SNBK'],
   stocks: {},
+
+  // 이벤트/쿨다운
   specialCooldown: 0,
-  kospiLogReturn: 0,
-  usRate: 4.50,
-  krRate: 3.25,
-  inflation: 2.8,
-  gdpGrowth: 2.2,
-  unemployment: 3.5,
-  rateDecisionTurn: 0,
   corpActionCooldown: {},
   marketCB: null,
   pendingGaps: {},
   pendingOrderList: [],
-  earningsTurn: 0,
-  earningsIdx: 0,
+  earningsTurn: 0, earningsIdx: 0,
+
+  // 금리/경제
+  usRate: 4.50, krRate: 3.25,
+  inflation: 2.8, gdpGrowth: 2.2, unemployment: 3.5,
+  rateDecisionTurn: 0,
+
+  // ── 신규: 경기사이클 ──
+  totalTicksElapsed: 0,           // 전체 틱 카운터
+  cyclePhaseOffset: Math.random() * Math.PI * 2, // 사이클 시작 위상 (랜덤)
+
+  // ── 신규: 버블/공포 ──
+  bubbleIndex: 0,                 // 0~1, 버블 과열도
+  fearIndex: 0,                   // 0~1, 저평가/공포 에너지
+  isCrash: false,                 // 붕괴 진행 중 여부
+  crashSeverity: 0,               // 붕괴 심각도 (0~1)
+  crashRecoveryTurns: 0,          // 회복 잠금 턴 수
+  consecutiveBullTurns: 0,        // 연속 bull 레짐 카운터
 };
 
-// 모든 종목 초기 상태 생성
+// 종목 초기 상태 생성
 ALL_STOCKS_DEF.forEach(def => {
   G.stocks[def.id] = {
     def,
-    price: def.initPrice,
-    dayOpen: def.initPrice,
-    dayHigh: def.initPrice,
-    dayLow: def.initPrice,
-    dayVol: 0,
-    prevClose: def.initPrice,
-    shares: 0,
-    avgBuy: 0,
-    dailyCandles: [],
-    intraday: null,
-    evCooldown: 0,
-    listed: false,
-    delisted: false,
+    price: def.initPrice, dayOpen: def.initPrice,
+    dayHigh: def.initPrice, dayLow: def.initPrice,
+    dayVol: 0, prevClose: def.initPrice,
+    shares: 0, avgBuy: 0,
+    dailyCandles: [], intraday: null,
+    evCooldown: 0, listed: false, delisted: false,
     garchVol: def.volBase / Math.sqrt(MINS_PER_DAY),
     prevTickPrice: def.initPrice,
-    priceF:    def.initPrice,
-    dayOpenF:  def.initPrice,
-    parValue: def.parValue,
-    totalShares: def.totalShares,
-    eps: def.initEps,
-    vi: null,
-    isUpperLimit: false,
-    isLowerLimit: false,
+    priceF: def.initPrice, dayOpenF: def.initPrice,
+    parValue: def.parValue, totalShares: def.totalShares, eps: def.initEps,
+    vi: null, isUpperLimit: false, isLowerLimit: false,
+    flowInst: 0, flowFore: 0, flowIndiv: 0,
+    netInst: 0, netFore: 0, netIndiv: 0,
   };
 });
 G.listedIds.forEach(id => { G.stocks[id].listed = true; });
@@ -256,10 +256,10 @@ G.listedIds.forEach(id => { G.stocks[id].listed = true; });
 // ════════════════════════════════════════════════════
 // HELPERS
 // ════════════════════════════════════════════════════
-const isWeekday = d => d.getDay() >= 1 && d.getDay() <= 5;
-const fmt  = n => '₩' + Math.round(n).toLocaleString('ko-KR');
-const fmtN = n => Math.round(n).toLocaleString('ko-KR');
-const dStr = d => `${d.getMonth()+1}/${d.getDate()}`;
-const activeStock = () => G.stocks[G.activeId];
-const activeDef   = () => activeStock().def;
+const isWeekday  = d  => d.getDay() >= 1 && d.getDay() <= 5;
+const fmt        = n  => '₩' + Math.round(n).toLocaleString('ko-KR');
+const fmtN       = n  => Math.round(n).toLocaleString('ko-KR');
+const dStr       = d  => `${d.getMonth()+1}/${d.getDate()}`;
+const activeStock  = () => G.stocks[G.activeId];
+const activeDef    = () => activeStock().def;
 const listedStocks = () => G.listedIds.map(id => G.stocks[id]).filter(st => st.listed && !st.delisted);

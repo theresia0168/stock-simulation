@@ -1,9 +1,6 @@
 // ── events.js ──  기업공시, 실적발표, 기업행동, IPO/상폐, 서킷브레이커
 // 의존: constants.js → state(G) 전역
-
-// ════════════════════════════════════════════════════
-// 누락 함수 복구
-// ════════════════════════════════════════════════════
+// ※ economy.js의 버블/크래시 상태(G.isCrash, G.bubbleIndex)를 참조
 
 function applyPendingGaps() {
   Object.entries(G.pendingGaps).forEach(([id, logGap]) => {
@@ -16,57 +13,62 @@ function applyPendingGaps() {
   G.pendingGaps = {};
 }
 
-
-
 function checkCBRelease() {
   if (!G.marketCB) return;
   if (G.turn >= G.marketCB.resumeTurn) { G.marketCB = null; setMsg('✅ 서킷브레이커 해제'); }
 }
-
-
 
 function tryCorporateActions() {
   if (marketStatus() !== 'open') return;
   G.listedIds.forEach(id => {
     const st = G.stocks[id];
     if (st.delisted || !st.listed) return;
-
-    // 쿨다운: 180턴(26일) → 1500턴(214일, 약 7개월)
-    // 실제 기업행동은 연 1회도 드문 편
     const lastAction = G.corpActionCooldown[id] || 0;
     if (G.turn - lastAction < 1500) return;
 
     const per = st.eps > 0 ? st.price / st.eps : null;
     const priceRatio = st.price / st.def.initPrice;
 
-    // 액면분할: 주가가 초기가의 5배 이상 (드물게)
     if (priceRatio >= 5 && st.parValue >= 100 && Math.random() < 0.3) {
       const ratio = priceRatio >= 10 ? 10 : 5;
       if (st.shares > 0) { st.shares *= ratio; if (st.avgBuy > 0) st.avgBuy /= ratio; }
-      st.parValue = Math.round(st.parValue / ratio);
+      st.parValue    = Math.round(st.parValue / ratio);
       st.totalShares *= ratio;
-      st.priceF = (st.priceF || st.price) / ratio;
-      st.price   = displayPrice(st.priceF);
-      st.dayOpen = st.price; st.dayOpenF = st.priceF;
-      st.dayHigh = st.price; st.dayLow = st.price;
+      st.eps          = Math.round(st.eps / ratio); // EPS도 분할 비율로 조정
+      st.priceF       = (st.priceF || st.price) / ratio;
+      st.price        = displayPrice(st.priceF);
+      // 일간 OHLC 전부 새 가격으로 리셋
+      st.dayOpen  = st.price; st.dayOpenF = st.priceF;
+      st.dayHigh  = st.price; st.dayLow   = st.price;
+      // prevTickPrice 리셋 — 분할 전 가격이 남아있으면 KOSPI에 폭락으로 잡힘
+      st.prevTickPrice = st.price;
+      // intraday 캔들도 새 가격으로 리셋
+      if (st.intraday) {
+        st.intraday.o = st.price; st.intraday.h = st.price;
+        st.intraday.l = st.price; st.intraday.c = st.price;
+      }
       st.ob = null;
       G.corpActionCooldown[id] = G.turn;
-      const msg = `✂️ [액면분할] ${id} ${ratio}:1 → ${fmt(st.price)}`;
+      const msg = `✂️ [액면분할] ${id} ${ratio}:1 → ${fmt(st.price)} (주식수 ${ratio}배, EPS ${ratio}분의1)`;
       showEventBar(msg, 'special'); addLog(msg, 'sys');
       return;
     }
 
-    // 액면병합: 주가가 액면가 50% 미만
     if (st.price < st.parValue * 0.5 && st.parValue <= 5000 && Math.random() < 0.3) {
       const ratio = 10;
       if (st.shares > 0) { st.shares = Math.max(1, Math.round(st.shares / ratio)); if (st.avgBuy > 0) st.avgBuy *= ratio; }
-      st.parValue *= ratio;
-      st.totalShares = Math.max(1000000, Math.round(st.totalShares / ratio));
-      st.eps *= ratio;
-      st.priceF = (st.priceF || st.price) * ratio;
-      st.price   = displayPrice(st.priceF);
-      st.dayOpen = st.price; st.dayOpenF = st.priceF;
-      st.dayHigh = st.price; st.dayLow = st.price;
+      st.parValue    *= ratio;
+      st.totalShares  = Math.max(1000000, Math.round(st.totalShares / ratio));
+      st.eps         *= ratio;
+      st.priceF       = (st.priceF || st.price) * ratio;
+      st.price        = displayPrice(st.priceF);
+      st.dayOpen  = st.price; st.dayOpenF = st.priceF;
+      st.dayHigh  = st.price; st.dayLow   = st.price;
+      st.prevTickPrice = st.price;
+      if (st.intraday) {
+        st.intraday.o = st.price; st.intraday.h = st.price;
+        st.intraday.l = st.price; st.intraday.c = st.price;
+      }
       st.ob = null;
       G.corpActionCooldown[id] = G.turn;
       const msg = `🔄 [액면병합] ${id} 1:${ratio} → ${fmt(st.price)}`;
@@ -74,9 +76,12 @@ function tryCorporateActions() {
       return;
     }
 
-    // 유상증자: PER>60 + 성장 필요 + 낮은 확률
-    // 0.15 → 0.03 (연 1회 미만)
     if (per !== null && per > 60 && G.krRate < 4.5 && Math.random() < 0.03) {
+      // 유상증자 연간 최대 1회 제한
+      // 같은 종목이 1년에 여러 번 증자하는 건 비현실적
+      const lastRightsIssue = st.lastRightsIssueTurn || 0;
+      if (G.turn - lastRightsIssue < 1764) return; // 1764턴 ≈ 252거래일 × 7턴 = 1년
+
       const ratio = 0.05 + Math.random() * 0.05;
       const old = st.totalShares;
       st.totalShares = Math.round(old * (1 + ratio));
@@ -84,12 +89,12 @@ function tryCorporateActions() {
       st.priceF = (st.priceF || st.price) * (1 - ratio * 0.5);
       st.price  = displayPrice(st.priceF);
       G.corpActionCooldown[id] = G.turn;
-      const msg = `📢 [유상증자] ${id} +${(ratio * 100).toFixed(1)}%`;
+      st.lastRightsIssueTurn   = G.turn; // 마지막 유상증자 턴 기록
+      const msg = `📢 [유상증자] ${id} 주식수 +${(ratio * 100).toFixed(1)}% → 주가 -${(ratio * 0.5 * 100).toFixed(1)}%`;
       showEventBar(msg, 'bear'); addLog(msg, 'sys');
       return;
     }
 
-    // 자사주소각: PER<8 + 현금 여유 + 낮은 확률
     if (per !== null && per > 0 && per < 8 && Math.random() < 0.03) {
       const ratio = 0.01 + Math.random() * 0.02;
       const old = st.totalShares;
@@ -98,13 +103,13 @@ function tryCorporateActions() {
       st.priceF = (st.priceF || st.price) * (1 + ratio * 0.8);
       st.price  = displayPrice(st.priceF);
       G.corpActionCooldown[id] = G.turn;
-      const msg = `🔥 [자사주소각] ${id} -${(ratio * 100).toFixed(1)}%`;
+      // 자사주소각은 주식 수 감소 → 주당가치 상승 → 호재
+      // 소각 비율은 주식 수 기준이고 주가는 오름 → +로 표기
+      const msg = `🔥 [자사주소각] ${id} 주식수 -${(ratio * 100).toFixed(1)}% → 주가 +${(ratio * 0.8 * 100).toFixed(1)}%`;
       showEventBar(msg, 'bull'); addLog(msg, 'sys');
     }
   });
 }
-
-
 
 function trySpecialEvent() {
   if (G.specialCooldown > 0) { G.specialCooldown--; return null; }
@@ -135,7 +140,15 @@ function trySpecialEvent() {
   if (G.listedIds.length > 2 && Math.random() < 0.3) {
     const candidates = G.listedIds.filter(id => {
       const st = G.stocks[id];
-      return st.price < st.def.initPrice * 0.3 && st.eps < 0;
+      // 기존: 주가 < initPrice*0.3 AND eps < 0
+      // 수정: 아래 조건 중 하나라도 충족
+      //   1) 적자 + 주가 30% 미만 (기존)
+      //   2) 주가가 initPrice의 5% 미만 (좀비 종목 — 흑자여도 상폐)
+      //   3) 적자 지속 + 주가 15% 미만 (완화된 조건)
+      const zombie      = st.price < st.def.initPrice * 0.05;
+      const classic     = st.price < st.def.initPrice * 0.30 && st.eps < 0;
+      const deepLoss    = st.price < st.def.initPrice * 0.15 && st.eps < 0;
+      return zombie || classic || deepLoss;
     });
     if (candidates.length > 0) {
       const id = candidates[Math.floor(Math.random()*candidates.length)];
@@ -159,12 +172,8 @@ function trySpecialEvent() {
   return null;
 }
 
-
-
 function tryEarningsEvent() {
   G.earningsTurn++;
-  // 실적 발표 주기: 250턴 = 약 35일 (heuristic 분기)
-  // 60턴(9일)은 실제 분기(63영업일)보다 7배 빠름 → EPS 과도하게 변동
   if (G.earningsTurn < 250) return null;
   G.earningsTurn = 0;
 
@@ -174,36 +183,45 @@ function tryEarningsEvent() {
   const id = listed[G.earningsIdx++];
   const st = G.stocks[id]; const def = st.def;
 
-  // 분기 EPS 성장률 계산
   const quarterlyBase = def.epsGrowthRate / 4;
-  // 레짐 효과 절반으로 축소: bull +2% / bear -3% (기존 +4%/-6%)
-  // bear 레짐에서도 성장주는 EPS가 완전히 녹지 않도록
-  const regimeEffect  = (G.regime==='bull' ? 0.02 : G.regime==='bear' ? -0.03 : 0) * def.epsCycleSens;
-  const rateEffect    = -(G.krRate - 3.0) * 0.01 * def.epsRateSens;
-  // 서프라이즈: 종목 변동성에 비례, 부호 랜덤
-  const surprise      = randn() * def.volBase * 1.5;
-  const totalGrowth   = quarterlyBase + regimeEffect + rateEffect + surprise;
+
+  // 크래시 중엔 EPS 충격 강화
+  const crashEffect = G.isCrash ? -0.05 * G.crashSeverity * def.epsCycleSens : 0;
+  const regimeEffect = (G.regime==='bull' ? 0.02 : G.regime==='bear' ? -0.03 : 0) * def.epsCycleSens;
+  const rateEffect   = -(G.krRate - 3.0) * 0.01 * def.epsRateSens;
+  // GDP 연동: 경기 좋으면 EPS도 개선
+  const gdpEffect    = (G.gdpGrowth - 2.0) * 0.005 * def.epsCycleSens;
+  const surprise     = randn() * def.volBase * 1.5;
+  const totalGrowth  = quarterlyBase + regimeEffect + rateEffect + gdpEffect + crashEffect + surprise;
 
   const oldEps = st.eps;
   if (oldEps >= 0) {
     st.eps = Math.round(oldEps * (1 + totalGrowth));
-    // EPS가 0 아래로 빠지면 최대 -50%로 제한 (현실적)
     if (st.eps < 0) st.eps = Math.round(oldEps * -0.5);
+    // EPS 하한: initEps의 10% (무한 하락 방지)
+    if (def.initEps > 0) st.eps = Math.max(Math.round(def.initEps * 0.10), st.eps);
   } else {
-    // 적자 기업: 성장이면 적자 축소, 쇼크면 적자 확대
     st.eps = Math.round(oldEps * (1 - totalGrowth));
-    // 흑자 전환 가능 (성장 지속 시)
-    if (totalGrowth > 0.5 && Math.random() < 0.3) st.eps = Math.round(Math.abs(oldEps) * 0.2);
+    // 흑자 전환 확률: bull 레짐이거나 GDP 호조 시 대폭 상향
+    const recoveryChance = G.regime === 'bull' ? 0.50
+      : G.gdpGrowth > 2.0               ? 0.30
+      : 0.15;
+    if (totalGrowth > 0.3 && Math.random() < recoveryChance) {
+      st.eps = Math.round(Math.abs(oldEps) * 0.3);
+    }
+    // 적자 하한: initEps 기준 -300% (무한 적자 방지)
+    const epsMin = def.initEps > 0 ? -def.initEps * 3 : Math.round(def.initEps * 3);
+    if (st.eps < epsMin) st.eps = epsMin;
   }
 
-  const isPos   = st.eps > oldEps;
-  const delta   = st.eps - oldEps;
-  const label   = isPos ? (Math.abs(delta) > Math.abs(oldEps * quarterlyBase) * 2 ? '어닝 서프라이즈' : '예상 소폭 상회')
-                        : (Math.abs(delta) > Math.abs(oldEps * quarterlyBase) * 2 ? '어닝 쇼크'       : '예상 소폭 하회');
-  const impact  = Math.max(-0.15, Math.min(0.15, totalGrowth * 0.35));
-  const logGap  = Math.log(1 + impact);
-  const per     = st.eps > 0 ? (st.price / st.eps).toFixed(1) : 'N/A';
-  const sign    = delta >= 0 ? '+' : '';
+  const isPos  = st.eps > oldEps;
+  const delta  = st.eps - oldEps;
+  const label  = isPos ? (Math.abs(delta) > Math.abs(oldEps * quarterlyBase) * 2 ? '어닝 서프라이즈' : '예상 소폭 상회')
+                       : (Math.abs(delta) > Math.abs(oldEps * quarterlyBase) * 2 ? '어닝 쇼크'       : '예상 소폭 하회');
+  const impact = Math.max(-0.15, Math.min(0.15, totalGrowth * 0.35));
+  const logGap = Math.log(1 + impact);
+  const per    = st.eps > 0 ? (st.price / st.eps).toFixed(1) : 'N/A';
+  const sign   = delta >= 0 ? '+' : '';
 
   if (G.totalMin >= CLOSE_MIN) {
     G.pendingGaps[id] = (G.pendingGaps[id] || 0) + logGap;
@@ -224,30 +242,58 @@ function tryEarningsEvent() {
   }
 }
 
-
-
 function processHourlyTurn() {
   const status = marketStatus();
   G.turn++;
   checkCBRelease();
   const cbActive = G.marketCB !== null;
-  transitionRegime();
+
+  // 레짐 전환: 매 hourlyTurn(=매 시간)이 아닌 약 5거래일(35턴)마다 1번만 시도
+  // 크래시/회복 중엔 transitionRegime() 내부에서 bear 강제 유지하므로 별도 처리 불필요
+  G.regimeTransitionCooldown = (G.regimeTransitionCooldown || 0) + 1;
+  if (G.regimeTransitionCooldown >= 35) {
+    G.regimeTransitionCooldown = 0;
+    transitionRegime();
+  }
+
   let topMsg = '';
 
   if (status === 'open' || status === 'after') {
     if (!cbActive) {
       const evtProb = G.regime==='bull'?0.03:G.regime==='bear'?0.05:0.04;
-      if (status==='open' && !G.activeMarketEvent && Math.random()<evtProb) {
-        const pool = G.regime==='bear'
-          ? MARKET_EVENTS.filter(e=>e.type==='bear').concat(MARKET_EVENTS)
-          : G.regime==='bull'
-          ? MARKET_EVENTS.filter(e=>e.type==='bull').concat(MARKET_EVENTS)
+
+      // 마켓 이벤트 쿨다운 카운터 감소
+      if (G.marketEventCooldown > 0) G.marketEventCooldown--;
+
+      if (status==='open' && !G.activeMarketEvent
+          && G.marketEventCooldown === 0
+          && Math.random() < evtProb) {
+
+        const matchedPool = G.regime === 'bear'
+          ? MARKET_EVENTS.filter(e => e.type === 'bear')
+          : G.regime === 'bull'
+          ? MARKET_EVENTS.filter(e => e.type === 'bull')
           : MARKET_EVENTS;
-        const mev = pool[Math.floor(Math.random()*pool.length)];
+        const pool = Math.random() < 0.70 && matchedPool.length > 0
+          ? matchedPool
+          : MARKET_EVENTS;
+
+        // 최근 발생 이벤트 제외 (직전 2개와 다른 이벤트 선택)
+        const recentTexts = G.recentMarketEvents || [];
+        const filtered = pool.filter(e => !recentTexts.includes(e.text));
+        const finalPool = filtered.length > 0 ? filtered : pool;
+        const mev = finalPool[Math.floor(Math.random() * finalPool.length)];
+
+        // 최근 이벤트 기록 (최대 2개 유지)
+        G.recentMarketEvents = [mev.text, ...(G.recentMarketEvents || [])].slice(0, 2);
+
+        // 이벤트 발생 후 14턴(약 2거래일) 쿨다운
+        G.marketEventCooldown = 14;
+
         G.activeMarketEvent = mev;
         topMsg = '🌐 시장: ' + mev.text;
         showEventBar(mev.text, mev.type);
-        // 이벤트 발생 시 즉각 가격 충격 (per-tick drift 누적 제거 대신)
+        addLog(`🌐 [시장이벤트] ${mev.text}`, mev.type === 'bull' ? 'buy' : mev.type === 'bear' ? 'sell' : 'sys');
         listedStocks().forEach(st => {
           const impact = mev.mult * st.def.marketBeta;
           if (Math.abs(impact) < 0.001) return;
@@ -259,34 +305,103 @@ function processHourlyTurn() {
           st.dayLow  = Math.min(st.dayLow,  nd);
           if (st.intraday) { st.intraday.h=Math.max(st.intraday.h,nd); st.intraday.l=Math.min(st.intraday.l,nd); st.intraday.c=nd; }
         });
-        // 이벤트는 당일만 유지 후 closeDay에서 해제
       }
     }
     if (status==='open') stepEconomy();
     if (status==='open' && !cbActive) tryCorporateActions();
     if (status==='open' && !topMsg && !cbActive) { const m=trySpecialEvent(); if(m) topMsg=m; }
-    // 실적 발표: topMsg 유무와 무관하게 항상 실행 (모든 종목 순환 보장)
     if (status==='open') { const m=tryEarningsEvent(); if(m && !topMsg) topMsg=m; }
 
-    // 종목 공시 이벤트 — 모든 종목 처리, 로그는 항상 기록
+    // ── EPS 점진적 성장/회복 (실적 발표 사이 구간) ──
+    // 실제로 기업은 분기 내내 이익을 축적함
+    // 핵심 변경: initEps를 천장으로 쓰지 않고 추세 EPS(목표값)를 기준으로 성장
+    if (status === 'open') {
+      const gdpBoost    = Math.max(0, G.gdpGrowth - 1.0) * 0.0003; // GDP 1% 초과분 반영
+      const regimeBoost = G.regime === 'bull'    ? 0.0006
+                        : G.regime === 'neutral' ? 0.0002
+                        : 0;
+      const growthRate  = gdpBoost + regimeBoost; // 최대 ~0.001/턴
+
+      if (growthRate > 0) {
+        G.listedIds.forEach(id => {
+          const st  = G.stocks[id];
+          const def = st.def;
+          if (st.delisted || !st.listed) return;
+
+          if (st.eps < 0) {
+            // 적자: 호황이면 적자 폭 축소
+            const reduction = Math.abs(st.eps) * growthRate * def.epsCycleSens;
+            st.eps = Math.min(0, Math.round(st.eps + reduction));
+
+          } else {
+            // 흑자: 종목 고유 성장률 + 경기/레짐 부스트로 실질 성장
+            // 목표 EPS = initEps * (1 + annualEpsGrowth)^(경과연수)
+            const yearsPassed = st.dailyCandles.length / 252;
+            const targetEps   = Math.round(
+              def.initEps * Math.pow(1 + def.epsGrowthRate, yearsPassed)
+            );
+            // 현재 EPS가 목표보다 낮으면 따라잡기 + 기본 성장
+            const catchUpRate = st.eps < targetEps
+              ? growthRate * 1.5   // 목표 미달이면 더 빠르게
+              : growthRate * 0.5;  // 목표 초과면 느리게 (과열 억제)
+            const epsGain = Math.max(1, Math.round(st.eps * catchUpRate * def.epsCycleSens));
+            st.eps = Math.round(st.eps + epsGain);
+
+            // EPS 상한: 목표의 200% (버블기 EPS 과열 억제)
+            const epsMax = targetEps * 2;
+            if (st.eps > epsMax) st.eps = epsMax;
+          }
+        });
+      }
+
+      // bear/크래시 중엔 EPS 서서히 악화
+      if (G.regime === 'bear' || G.isCrash) {
+        const deteriorateRate = G.isCrash
+          ? 0.0008 * G.crashSeverity
+          : 0.0002;
+        G.listedIds.forEach(id => {
+          const st  = G.stocks[id];
+          const def = st.def;
+          if (st.delisted || !st.listed || st.eps <= 0) return;
+          const loss = Math.max(1, Math.round(st.eps * deteriorateRate * def.epsCycleSens));
+          st.eps = Math.max(Math.round(def.initEps * 0.1), st.eps - loss);
+        });
+      }
+    }
+
     G.listedIds.forEach(id => {
       const st = G.stocks[id];
       if (st.delisted||st.vi!==null||cbActive||status!=='open') return;
       if (Math.random()>=0.015||st.evCooldown>0) return;
       const def=st.def;
-      const stEv=def.events[Math.floor(Math.random()*def.events.length)];
-      st.evCooldown=15;
 
-      // 로그는 모든 종목 항상 기록 (activeId 무관)
+      // 최근 발생 이벤트 이력 추적 — 이벤트 풀 절반까지 제외
+      // 기존: 직전 1개만 기억 → 60턴 후 같은 이벤트 반복 가능
+      // 수정: 최근 ceil(poolSize/2)개 기억 → 다양한 이벤트 순환
+      const evCount   = def.events.length;
+      const maxMemory = Math.ceil(evCount / 2); // 풀 절반까지 기억
+      const recentIdxs = st.recentEvIdxs || [];
+
+      // 최근 이력에 없는 이벤트만 후보로
+      let candidates = Array.from({length: evCount}, (_, i) => i)
+        .filter(i => !recentIdxs.includes(i));
+      if (candidates.length === 0) candidates = Array.from({length: evCount}, (_, i) => i);
+
+      const evIdx = candidates[Math.floor(Math.random() * candidates.length)];
+
+      // 이력 업데이트 (최대 maxMemory개 유지)
+      st.recentEvIdxs = [evIdx, ...recentIdxs].slice(0, maxMemory);
+
+      const stEv = def.events[evIdx];
+      st.evCooldown = 60;
+
       const evMsg = `📌 [${id}] ${stEv.text}`;
       addLog(evMsg, stEv.type === 'bull' ? 'buy' : 'sell');
 
-      // 이벤트 바 표시는 현재 보는 종목 or topMsg 없을 때
       if (!topMsg) {
         topMsg = evMsg;
         showEventBar(`[${id}] ${stEv.text}`, stEv.type);
       } else if (id === G.activeId) {
-        // 현재 종목 이벤트는 항상 이벤트바에 표시
         showEventBar(`[${id}] ${stEv.text}`, stEv.type);
       }
 
@@ -303,12 +418,10 @@ function processHourlyTurn() {
           st.eps=Math.round(st.eps*(old/st.totalShares));
         }
       } else if (Math.random()<0.4) {
-        // 장 마감 후 공시 → 갭
         G.pendingGaps[id]=(G.pendingGaps[id]||0)+Math.log(1+stEv.impact*0.6);
       }
     });
 
-    // KOSPI GBM
     stepKospi();
     if (status==='open') updateKospiCandle();
     if (status==='open') checkMarketCB();
@@ -326,4 +439,3 @@ function processHourlyTurn() {
   if (!G.activeId||!G.stocks[G.activeId]||G.stocks[G.activeId].delisted)
     G.activeId=G.listedIds[0]||'';
 }
-

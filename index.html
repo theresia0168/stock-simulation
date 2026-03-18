@@ -22,6 +22,17 @@
   <span class="idx-sep">|</span>
   <div class="idx-block"><span class="idx-name">🇰🇷 BOK</span><span class="idx-val" id="idxKrRate" style="font-size:11px;color:var(--text2)">3.25%</span></div>
   <span class="idx-sep">|</span>
+  <div class="idx-block"><span class="idx-name">GDP</span><span class="idx-val" id="idxGdp" style="font-size:11px;color:var(--text2)">2.2%</span></div>
+  <span class="idx-sep">|</span>
+  <div class="idx-block"><span class="idx-name">인플레</span><span class="idx-val" id="idxInfl" style="font-size:11px;color:var(--text2)">2.8%</span></div>
+  <span class="idx-sep">|</span>
+  <div class="idx-block"><span class="idx-name">실업</span><span class="idx-val" id="idxUnemp" style="font-size:11px;color:var(--text2)">3.5%</span></div>
+  <span class="idx-sep">|</span>
+  <div class="idx-block">
+    <span class="idx-name">버블</span>
+    <span class="idx-val up" id="idxBubble" style="font-size:11px">0%</span>
+  </div>
+  <span class="idx-sep">|</span>
   <span id="idxDate" style="font-size:11px;color:var(--text2)">2025.01.06 09:00</span>
   <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
     <span class="badge badge-closed" id="badge">장 마감</span>
@@ -38,14 +49,12 @@
 <!-- ══ 페이지 1 ══ -->
 <div class="page active" id="page-stock">
 
-  <!-- 종목 탭 + 컨트롤 -->
   <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">
     <div class="ticker-tabs" id="tickerTabs" style="flex:1;margin-bottom:0"></div>
     <button class="btn-day" id="btnDay" onclick="toggleRealtime()">&#9654; 하루 시작</button>
     <button class="btn-day btn-day-skip" id="btnSkip" onclick="skipDay()">&#187;</button>
   </div>
 
-  <!-- 종목 헤더 -->
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding-bottom:8px;border-bottom:1px solid var(--border)">
     <div style="display:flex;align-items:baseline;gap:10px">
       <div class="ticker" id="hTicker">NARO</div>
@@ -69,16 +78,19 @@
     </div>
   </div>
 
-  <!-- 이벤트/뉴스 -->
   <div class="event-bar" id="eventBar"></div>
   <div class="news-bar"><span class="news-inner" id="newsText">&#128240; 주가 시뮬레이터 시작 &nbsp;&nbsp;&nbsp; ▶ 하루 시작을 눌러 실시간으로 시작하세요 &nbsp;&nbsp;&nbsp;</span></div>
   <div class="trait-row" id="traitRow"></div>
   <div class="msg-bar" id="msgBar">&#9654; 종목을 선택하고 하루 시작을 눌러 시장을 시작하세요.</div>
 
-  <!-- ══ 존 1 (빨간): 차트·펀더·흐름(왼) + 호가·주문(오) ══ -->
-  <div class="zone-top">
+  <!-- 버블 경고 바 (bubbleIndex > 0.5 일 때 표시) -->
+  <div id="bubbleWarningBar" style="display:none;padding:5px 12px;border-radius:6px;margin-bottom:8px;font-family:var(--mono);font-size:10px;background:rgba(255,77,109,0.08);border:1px solid rgba(255,77,109,0.25);color:var(--down)">
+    <span id="bubbleWarningText">⚠ 시장 과열 경고</span>
+    <span style="float:right;color:var(--text3)" id="bubbleBarFill">──────────────────────</span>
+  </div>
 
-    <!-- 왼쪽: 차트 + OHLCV + 펀더멘탈 + 투자흐름 -->
+  <!-- ══ 존 1 ══ -->
+  <div class="zone-top">
     <div class="zone-top-left">
       <div class="chart-container"><canvas id="chart" height="240"></canvas></div>
 
@@ -96,6 +108,43 @@
         <div class="stat"><div class="stat-label">PER</div><div class="stat-val" id="sPer">─</div></div>
         <div class="stat"><div class="stat-label">DPS</div><div class="stat-val up" id="sDps">─</div></div>
         <div class="stat"><div class="stat-label">배당수익률</div><div class="stat-val up" id="sDivYld">─</div></div>
+      </div>
+
+      <!-- 경제 대시보드 (신규) -->
+      <div class="econ-panel">
+        <div class="flow-title">MACRO DASHBOARD</div>
+        <div class="econ-grid">
+          <div class="econ-cell">
+            <div class="econ-label">GDP 성장률</div>
+            <div class="econ-val" id="econGdp">2.2%</div>
+            <div class="econ-bar-wrap"><div class="econ-bar econ-bar-gdp" id="econGdpBar"></div></div>
+          </div>
+          <div class="econ-cell">
+            <div class="econ-label">인플레이션</div>
+            <div class="econ-val" id="econInfl">2.8%</div>
+            <div class="econ-bar-wrap"><div class="econ-bar econ-bar-infl" id="econInflBar"></div></div>
+          </div>
+          <div class="econ-cell">
+            <div class="econ-label">실업률</div>
+            <div class="econ-val" id="econUnemp">3.5%</div>
+            <div class="econ-bar-wrap"><div class="econ-bar econ-bar-unemp" id="econUnempBar"></div></div>
+          </div>
+          <div class="econ-cell">
+            <div class="econ-label">시장 PER</div>
+            <div class="econ-val" id="econPer">─</div>
+            <div class="econ-bar-wrap"><div class="econ-bar econ-bar-per" id="econPerBar"></div></div>
+          </div>
+          <div class="econ-cell">
+            <div class="econ-label">버블 지수</div>
+            <div class="econ-val down" id="econBubble">0%</div>
+            <div class="econ-bar-wrap"><div class="econ-bar econ-bar-bubble" id="econBubbleBar"></div></div>
+          </div>
+          <div class="econ-cell">
+            <div class="econ-label">공포 지수</div>
+            <div class="econ-val up" id="econFear">0%</div>
+            <div class="econ-bar-wrap"><div class="econ-bar econ-bar-fear" id="econFearBar"></div></div>
+          </div>
+        </div>
       </div>
 
       <div class="flow-panel" style="margin-bottom:0">
@@ -150,13 +199,10 @@
         <div id="pendingOrders"><div style="font-family:var(--mono);font-size:9px;color:var(--text3);text-align:center;padding:4px">없음</div></div>
       </div>
     </div>
+  </div>
 
-  </div><!-- /zone-top -->
-
-  <!-- ══ 존 2: 보유종목(파란) + 포트폴리오(노란) ══ -->
+  <!-- ══ 존 2 ══ -->
   <div class="zone-bottom">
-
-    <!-- 파란: HOLDINGS + 로그 -->
     <div class="zone-bottom-left">
       <div class="hp-title">HOLDINGS</div>
       <div class="hp-header">
@@ -168,8 +214,6 @@
       <div id="holdingsBody"><div class="hp-empty">보유 종목 없음</div></div>
       <div class="log" id="logPanel" style="border-top:1px solid var(--border);border-radius:0;margin:0;padding:6px 10px"><div class="log-item">거래 내역이 없습니다.</div></div>
     </div>
-
-    <!-- 노란: PORTFOLIO -->
     <div class="zone-bottom-right">
       <div class="panel-title">PORTFOLIO</div>
       <div class="port-row"><span class="port-label">보유 현금</span><span class="port-val" id="pCash">&#8361;1,000,000</span></div>
@@ -184,8 +228,7 @@
       <div class="port-row"><span class="port-label">누적 배당 수령</span><span class="port-val up" id="pDividend" style="font-size:11px">&#8361;0</span></div>
       <div class="port-row"><span class="port-label">누적 수수료</span><span class="port-val" id="pFee" style="font-size:10px;color:#555e78">&#8361;0</span></div>
     </div>
-
-  </div><!-- /zone-bottom -->
+  </div>
 
 </div><!-- /page-stock -->
 
