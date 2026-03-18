@@ -314,3 +314,34 @@ G.listedIds.forEach(id => {
 syncHourMinute();
 renderFull();
 setMsg('\u25B6 \ud558\ub8e8 \uc2dc\uc791\uc744 \ub208\ub7ec \uc2e4\uc2dc\uac04\uc73c\ub85c \uc2dc\uc791\ud558\uc138\uc694. \u00BB \ube60\ub978 \uc9c4\ud589\ub3c4 \uac00\ub2a5\ud569\ub2c8\ub2e4.');
+
+// ════════════════════════════════════════════════════
+// REGIME PARAMETERS
+// constants.js 하단에 추가 — economy.js, engine.js에서 참조
+// ════════════════════════════════════════════════════
+
+// 레짐 전환 확률 행렬
+// { bull→bull, bull→neutral, bull→bear } 등
+const REGIME_TRANS = {
+  bull:    { bull: 0.70, neutral: 0.25, bear: 0.05 },
+  neutral: { bull: 0.15, neutral: 0.70, bear: 0.15 },
+  bear:    { bull: 0.05, neutral: 0.25, bear: 0.70 },
+};
+
+// 레짐별 드리프트 / 변동성 배수
+const REGIME_PARAMS = {
+  bull:    { drift:  0.0004, volMult: 0.85 },
+  neutral: { drift:  0.0001, volMult: 1.00 },
+  bear:    { drift: -0.0005, volMult: 1.35 },
+};
+
+// ════════════════════════════════════════════════════
+// UI 전역 상태 변수
+// trade.js, ui.js에서 참조
+// ════════════════════════════════════════════════════
+
+// 현재 주문 유형: 'market' | 'limit'
+let G_orderType = 'market';
+
+// 현재 활성 페이지: 'stock' | 'kospi'
+let currentPage = 'stock';
