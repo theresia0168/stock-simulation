@@ -7,15 +7,12 @@
 // ════════════════════════════════════════════════════
 const INIT_CASH = 1000000;
 const OPEN_H = 9, CLOSE_H = 15, AFTER_H = 16;
-// 분 단위 경계
 const OPEN_MIN  = OPEN_H  * 60;   // 540  (09:00)
 const CLOSE_MIN = CLOSE_H * 60;   // 900  (15:00)
 const AFTER_MIN = AFTER_H * 60;   // 960  (16:00)
-const DAY_TICKS = AFTER_MIN - OPEN_MIN; // 420틱 = 하루 장중
-// 분봉 기준: 6시간 정규 + 1시간 애프터 = 420분/일
+const DAY_TICKS = AFTER_MIN - OPEN_MIN;
 const MINS_PER_DAY = 420;
-const REST_SECS = 60; // 장 마감 후 휴식 (실제 초)
-// KOSPI GBM 상수
+const REST_SECS = 60;
 const KOSPI_ANNUAL_DRIFT = 0.08;
 const KOSPI_DAILY_VOL    = 0.015;
 const KOSPI_MIN_VOL      = KOSPI_DAILY_VOL / Math.sqrt(MINS_PER_DAY);
@@ -26,28 +23,13 @@ const KOSPI_BASE = 2500;
 
 // ════════════════════════════════════════════════════
 // STOCK POOL
-//
-// 새 파라미터 설명:
-//   annualDrift  : 연간 기대 수익률 (로그 기준)
-//                  코스피 실증: 우량주 +0.08~+0.12, 성장주 +0.15~+0.25
-//   volBase      : 일간 기본 변동성 (σ/√252 ≈ 시간당)
-//                  코스피 대형주 일간 σ ≈ 1.2~1.8%, 소형 성장주 3~5%
-//   meanRevSpeed : 평균 회귀 강도 (0=없음, 0.02=약함, 0.05=강함)
-//                  배당주/가치주 → 강함, 테마주 → 약함
-//   garchOmega   : GARCH 장기 분산 기여 (volBase² × (1-α-β))
-//   garchAlpha   : 충격 반응 계수 (바이오/테마주 높음 → 0.12~0.18)
-//   garchBeta    : 변동성 지속 계수 (대형주 높음 → 0.85~0.90)
-//   dailyLimit   : 일간 등락 제한 (log scale; ±30% ≈ ±0.262)
-//   baseVol      : 일평균 거래량 (시간당으로 나눠서 사용)
-//   volSens      : 가격 변동 → 거래량 증폭 계수
-//   marketBeta   : 시장 레짐 반응 강도
 // ════════════════════════════════════════════════════
 const ALL_STOCKS_DEF = [
   {
     id:'NARO', name:'나로테크', sector:'반도체 · 대형주', initPrice:85000,
     totalShares:600000000, initEps:3400, parValue:500,
     epsGrowthRate:0.12, epsCycleSens:1.2, epsRateSens:-0.3,
-    dividendPayout:0.15,  // 배당성향 15% — 성장 재투자 우선, 소배당
+    dividendPayout:0.15,
     annualDrift:0.10, volBase:0.015, meanRevSpeed:0.006,
     garchOmega:2.14e-8, garchAlpha:0.08, garchBeta:0.88,
     dailyLimit:0.262, baseVol:180000, volSens:2.5, marketBeta:1.3, rateSens:-0.3,
@@ -64,7 +46,7 @@ const ALL_STOCKS_DEF = [
     id:'BIOX', name:'바이오엑스', sector:'바이오 · 중형주', initPrice:32000,
     totalShares:50000000, initEps:400, parValue:500,
     epsGrowthRate:0.08, epsCycleSens:0.3, epsRateSens:-0.2,
-    dividendPayout:0.0,   // 무배당 — R&D 전액 재투자
+    dividendPayout:0.0,
     annualDrift:0.08, volBase:0.035, meanRevSpeed:0.003,
     garchOmega:1.17e-7, garchAlpha:0.14, garchBeta:0.82,
     dailyLimit:0.262, baseVol:90000, volSens:4.0, marketBeta:0.65, rateSens:-0.6,
@@ -82,7 +64,7 @@ const ALL_STOCKS_DEF = [
     id:'HNCR', name:'한창리테일', sector:'소비재 · 중형주', initPrice:14500,
     totalShares:80000000, initEps:806, parValue:1000,
     epsGrowthRate:0.04, epsCycleSens:0.3, epsRateSens:-0.1,
-    dividendPayout:0.50,  // 배당성향 50% — 경기방어주, 안정 배당
+    dividendPayout:0.50,
     annualDrift:0.04, volBase:0.010, meanRevSpeed:0.003,
     garchOmega:9.52e-9, garchAlpha:0.06, garchBeta:0.90,
     dailyLimit:0.262, baseVol:55000, volSens:1.6, marketBeta:0.75, rateSens:-0.2,
@@ -99,7 +81,7 @@ const ALL_STOCKS_DEF = [
     id:'EVGO', name:'이브고', sector:'전기차 · 소형주', initPrice:9800,
     totalShares:100000000, initEps:49, parValue:100,
     epsGrowthRate:0.35, epsCycleSens:1.8, epsRateSens:-0.8,
-    dividendPayout:0.0,   // 무배당 — 고성장 투자 단계
+    dividendPayout:0.0,
     annualDrift:0.15, volBase:0.045, meanRevSpeed:0.004,
     garchOmega:2.41e-7, garchAlpha:0.16, garchBeta:0.79,
     dailyLimit:0.262, baseVol:320000, volSens:5.0, marketBeta:1.6, rateSens:-0.9,
@@ -116,7 +98,7 @@ const ALL_STOCKS_DEF = [
     id:'SNBK', name:'선은행', sector:'금융 · 대형주', initPrice:52000,
     totalShares:400000000, initEps:6500, parValue:5000,
     epsGrowthRate:0.05, epsCycleSens:0.6, epsRateSens:0.4,
-    dividendPayout:0.60,  // 배당성향 60% — 은행주 고배당
+    dividendPayout:0.60,
     annualDrift:0.06, volBase:0.009, meanRevSpeed:0.004,
     garchOmega:5.79e-9, garchAlpha:0.05, garchBeta:0.92,
     dailyLimit:0.262, baseVol:120000, volSens:1.4, marketBeta:0.85, rateSens:0.5,
@@ -133,7 +115,7 @@ const ALL_STOCKS_DEF = [
     id:'QTUM', name:'퀀텀시스템즈', sector:'양자컴퓨팅 · 소형주', initPrice:15000,
     totalShares:30000000, initEps:-200, parValue:100,
     epsGrowthRate:0.50, epsCycleSens:2.0, epsRateSens:-1.0,
-    dividendPayout:0.0,   // 무배당 — 적자 기업
+    dividendPayout:0.0,
     annualDrift:0.20, volBase:0.055, meanRevSpeed:0.002,
     garchOmega:3.60e-7, garchAlpha:0.18, garchBeta:0.77,
     dailyLimit:0.262, baseVol:250000, volSens:6.0, marketBeta:1.8, rateSens:-1.0,
@@ -149,7 +131,7 @@ const ALL_STOCKS_DEF = [
     id:'GRNU', name:'그린유', sector:'신재생에너지 · 중형주', initPrice:22000,
     totalShares:60000000, initEps:880, parValue:500,
     epsGrowthRate:0.12, epsCycleSens:0.7, epsRateSens:-0.4,
-    dividendPayout:0.10,  // 배당성향 10% — ESG 성장주, 소배당
+    dividendPayout:0.10,
     annualDrift:0.12, volBase:0.022, meanRevSpeed:0.005,
     garchOmega:4.61e-8, garchAlpha:0.10, garchBeta:0.86,
     dailyLimit:0.262, baseVol:140000, volSens:3.2, marketBeta:1.1, rateSens:-0.5,
@@ -158,14 +140,14 @@ const ALL_STOCKS_DEF = [
       {text:'정부 재생에너지 확대 정책 발표', impact:0.08, type:'bull'},
       {text:'해상풍력 입찰 탈락', impact:-0.06, type:'bear'},
       {text:'유럽 탄소중립 펀드 대규모 편입', impact:0.07, type:'bull'},
-      {text:'원자재 가격 급등으로 수익성 악대', impact:-0.05, type:'bear'},
+      {text:'원자재 가격 급등으로 수익성 악화', impact:-0.05, type:'bear'},
     ]
   },
   {
     id:'MEDI', name:'메디케어', sector:'헬스케어 · 대형주', initPrice:68000,
     totalShares:150000000, initEps:4250, parValue:1000,
     epsGrowthRate:0.07, epsCycleSens:0.25, epsRateSens:-0.1,
-    dividendPayout:0.45,  // 배당성향 45% — 헬스케어 중배당
+    dividendPayout:0.45,
     annualDrift:0.07, volBase:0.012, meanRevSpeed:0.004,
     garchOmega:1.37e-8, garchAlpha:0.07, garchBeta:0.89,
     dailyLimit:0.262, baseVol:95000, volSens:2.0, marketBeta:0.70, rateSens:-0.15,
@@ -179,7 +161,7 @@ const ALL_STOCKS_DEF = [
   },
 ];
 
-// 시장 이벤트 (금리는 별도 시스템으로 처리 — 여기선 금리 무관 이벤트만)
+// 시장 이벤트
 const MARKET_EVENTS = [
   {text:'미중 무역분쟁 재점화 — 수출주 일제 하락', mult:-0.022, type:'bear'},
   {text:'GDP 성장률 예상 상회 — 경기 회복 기대감', mult:0.015, type:'bull'},
@@ -205,8 +187,8 @@ const GENERIC_NEWS = [
 let G = {
   date: new Date(2025, 0, 6),
   hour: 9,
-  minute: 0,           // 현재 분 (0~59)
-  totalMin: OPEN_MIN,  // 하루 내 절대 분 (540~1080)
+  minute: 0,
+  totalMin: OPEN_MIN,
   turn: 0,
   realtimeTimer: null,
   isRunning: false,
@@ -215,8 +197,8 @@ let G = {
   activeId: 'NARO',
   cash: INIT_CASH,
   totalFee: 0,
-  totalDividend: 0,        // 누적 배당 수령액
-  dividendPaidThisYear: false,  // 올해 배당 지급 여부 (중복 방지)
+  totalDividend: 0,
+  dividendPaidThisYear: false,
   logs: [],
   regime: 'neutral',
   activeMarketEvent: null,
@@ -226,19 +208,16 @@ let G = {
   stocks: {},
   specialCooldown: 0,
   kospiLogReturn: 0,
-  // 금리 시스템
-  usRate: 4.50,        // 미국 기준금리 (%)
-  krRate: 3.25,        // 한국 기준금리 (%)
-  inflation: 2.8,      // 인플레이션 (%)
-  gdpGrowth: 2.2,      // 경제성장률 (%)
-  unemployment: 3.5,   // 실업률 (%)
+  usRate: 4.50,
+  krRate: 3.25,
+  inflation: 2.8,
+  gdpGrowth: 2.2,
+  unemployment: 3.5,
   rateDecisionTurn: 0,
-  // 기업 행동 쿨다운
   corpActionCooldown: {},
-  // 서킷브레이커 상태
   marketCB: null,
   pendingGaps: {},
-  pendingOrderList: [],  // 미체결 지정가 주문 목록 (최대 10개)
+  pendingOrderList: [],
   earningsTurn: 0,
   earningsIdx: 0,
 };
@@ -262,14 +241,12 @@ ALL_STOCKS_DEF.forEach(def => {
     delisted: false,
     garchVol: def.volBase / Math.sqrt(MINS_PER_DAY),
     prevTickPrice: def.initPrice,
-    priceF:    def.initPrice,   // float 내부 가격 (연속값)
-    dayOpenF:  def.initPrice,   // float 일간 시가
-    parValue: def.parValue,   // 현재 액면가 (분할/병합 시 변동)
-    totalShares: def.totalShares,   // 현재 발행주식 수 (변동 가능)
-    eps: def.initEps,               // 주당순이익 (분기 실적 발표 시 업데이트)
-    // 종목 단위 VI(변동성완화장치): null | { resumeTurn: N }
+    priceF:    def.initPrice,
+    dayOpenF:  def.initPrice,
+    parValue: def.parValue,
+    totalShares: def.totalShares,
+    eps: def.initEps,
     vi: null,
-    // 상한가/하한가 도달 여부 (F: 거래 제한)
     isUpperLimit: false,
     isLowerLimit: false,
   };
@@ -280,68 +257,9 @@ G.listedIds.forEach(id => { G.stocks[id].listed = true; });
 // HELPERS
 // ════════════════════════════════════════════════════
 const isWeekday = d => d.getDay() >= 1 && d.getDay() <= 5;
-const fmt  = n => '\u20a9' + Math.round(n).toLocaleString('ko-KR');
+const fmt  = n => '₩' + Math.round(n).toLocaleString('ko-KR');
 const fmtN = n => Math.round(n).toLocaleString('ko-KR');
 const dStr = d => `${d.getMonth()+1}/${d.getDate()}`;
 const activeStock = () => G.stocks[G.activeId];
 const activeDef   = () => activeStock().def;
 const listedStocks = () => G.listedIds.map(id => G.stocks[id]).filter(st => st.listed && !st.delisted);
-
-
-// ════════════════════════════════════════════════════
-// INIT — 게임 시작 시 1회 실행
-// ════════════════════════════════════════════════════
-document.getElementById('qtyInput').addEventListener('input', updateTradeInfo);
-
-window.addEventListener('resize', () => {
-  drawChart();
-  if (currentPage === 'kospi') { drawKospiChart(); renderKospiFlowTable(); }
-});
-
-// G에 새 필드 추가 후 초기화
-G.kospiCandles = [];
-G.kospiIntraday = null;
-G.kospiFlowHistory = [];
-G.marketFlowInst = 0;
-G.marketFlowFore = 0;
-G.marketFlowIndiv = 0;
-G.listedIds.forEach(id => {
-  const st = G.stocks[id];
-  st.flowInst=0; st.flowFore=0; st.flowIndiv=0;
-  st.netInst=0;  st.netFore=0;  st.netIndiv=0;
-});
-
-syncHourMinute();
-renderFull();
-setMsg('\u25B6 \ud558\ub8e8 \uc2dc\uc791\uc744 \ub208\ub7ec \uc2e4\uc2dc\uac04\uc73c\ub85c \uc2dc\uc791\ud558\uc138\uc694. \u00BB \ube60\ub978 \uc9c4\ud589\ub3c4 \uac00\ub2a5\ud569\ub2c8\ub2e4.');
-
-// ════════════════════════════════════════════════════
-// REGIME PARAMETERS
-// constants.js 하단에 추가 — economy.js, engine.js에서 참조
-// ════════════════════════════════════════════════════
-
-// 레짐 전환 확률 행렬
-// { bull→bull, bull→neutral, bull→bear } 등
-const REGIME_TRANS = {
-  bull:    { bull: 0.70, neutral: 0.25, bear: 0.05 },
-  neutral: { bull: 0.15, neutral: 0.70, bear: 0.15 },
-  bear:    { bull: 0.05, neutral: 0.25, bear: 0.70 },
-};
-
-// 레짐별 드리프트 / 변동성 배수
-const REGIME_PARAMS = {
-  bull:    { drift:  0.0004, volMult: 0.85 },
-  neutral: { drift:  0.0001, volMult: 1.00 },
-  bear:    { drift: -0.0005, volMult: 1.35 },
-};
-
-// ════════════════════════════════════════════════════
-// UI 전역 상태 변수
-// trade.js, ui.js에서 참조
-// ════════════════════════════════════════════════════
-
-// 현재 주문 유형: 'market' | 'limit'
-let G_orderType = 'market';
-
-// 현재 활성 페이지: 'stock' | 'kospi'
-let currentPage = 'stock';

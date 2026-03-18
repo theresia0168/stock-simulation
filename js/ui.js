@@ -122,9 +122,9 @@ function updateUI() {
 
   const badge = document.getElementById('badge'), si = document.getElementById('sessionInfo');
   if (status === 'open') {
-    badge.textContent = '정규장'; badge.className = 'badge badge-open'; si.textContent = '정규장 09:00~16:00';
+    badge.textContent = '정규장'; badge.className = 'badge badge-open'; si.textContent = '정규장 09:00~15:00';
   } else if (status === 'after') {
-    badge.textContent = '애프터'; badge.className = 'badge badge-after'; si.textContent = '애프터 16:00~18:00';
+    badge.textContent = '애프터'; badge.className = 'badge badge-after'; si.textContent = '애프터 15:00~16:00';
   } else {
     badge.textContent = '장 마감'; badge.className = 'badge badge-closed';
     si.textContent = isWeekday(G.date) ? '개장 전 / 장 종료' : '주말 휴장';
